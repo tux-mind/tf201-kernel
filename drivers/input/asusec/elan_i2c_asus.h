@@ -2,19 +2,20 @@
 #define _ELAN_I2C_ASUS_H
 
 #include "asusdec.h"
+#include <linux/input.h>
 
 #define ELAN_DEBUG			0
 #if ELAN_DEBUG
 #define ELAN_INFO(format, arg...)	\
 	printk(KERN_INFO "elan_i2c_asus: [%s] " format , __FUNCTION__ , ## arg)
 #else
-#define ELAN_INFO(format, arg...)	 
+#define ELAN_INFO(format, arg...)
 #endif
 
 
 #define ELAN_ERR(format, arg...)	\
 	printk(KERN_ERR "elan_i2c_asus: [%s] " format , __FUNCTION__ , ## arg)
-	
+
 #define CONVERSION_TIME_MS		50
 
 #define ELAN_RETRY_COUNT		3
@@ -99,7 +100,7 @@
  * Hence the X and Y ranges are doubled too.
  * The bezel around the pad also appears to be smaller
  */
-#define ETP_EDGE_FUZZ_V2		0
+#define ETP_EDGE_FUZZ_V2		8
 
 #define ETP_XMIN_V2			(   0 + ETP_EDGE_FUZZ_V2)
 #define ETP_XMAX_V2			(1152 - ETP_EDGE_FUZZ_V2)
@@ -109,11 +110,16 @@
 #define ETP_WMIN_V2                     0
 #define ETP_WMAX_V2                     15
 
+#define ETP_PMIN_V2			0
+#define ETP_PMAX_V2			255
+#define ETP_WMIN_V2			0
+#define ETP_WMAX_V2			15
+
 /*
  * For two finger touches the coordinate of each finger gets reported
  * separately but with reduced resolution.
  */
-#define ETP_2FT_FUZZ			0
+#define ETP_2FT_FUZZ			4
 
 #define ETP_2FT_XMIN			(  0 + ETP_2FT_FUZZ)
 #define ETP_2FT_XMAX			(288 - ETP_2FT_FUZZ)

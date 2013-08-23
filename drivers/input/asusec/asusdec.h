@@ -26,7 +26,7 @@
 							ASUSDEC_INFO("ec_data[%d] = 0x%x\n", i, array[i]);	\
 					} while(0)
 #else
-#define ASUSDEC_INFO(format, arg...)	 
+#define ASUSDEC_INFO(format, arg...)
 #define ASUSDEC_I2C_DATA(array, i)
 #endif
 
@@ -36,7 +36,7 @@
 #define ASUSDEC_ERR(format, arg...)	\
 	printk(KERN_ERR "asusdec: [%s] " format , __FUNCTION__ , ## arg)
 
-//-----------------------------------------	       
+//-----------------------------------------
 
 #define DRIVER_DESC     		"ASUS Dock EC Driver"
 #define DOCK_SDEV_NAME			"dock"
@@ -91,7 +91,7 @@
 #define ASUSDEC_KEYPAD_KEY_WAVE		0x0E
 #define ASUSDEC_KEYPAD_KEY_1		0x16
 #define ASUSDEC_KEYPAD_KEY_2		0X1E
-#define ASUSDEC_KEYPAD_KEY_3		0x26	
+#define ASUSDEC_KEYPAD_KEY_3		0x26
 #define ASUSDEC_KEYPAD_KEY_4		0x25
 #define ASUSDEC_KEYPAD_KEY_5		0x2E
 #define ASUSDEC_KEYPAD_KEY_6        	0x36
@@ -159,14 +159,14 @@
 #define ASUSDEC_KEYPAD_PAGEUP		0xE07D
 #define ASUSDEC_KEYPAD_PAGEDOWN		0xE07A
 #define ASUSDEC_KEYPAD_END			0xE069
-/************  JP keys *************/                       
-#define ASUSDEC_HANKAKU_ZENKAKU		0x5F                
+/************  JP keys *************/
+#define ASUSDEC_HANKAKU_ZENKAKU		0x5F
 #define ASUSDEC_YEN					0x6A
-#define ASUSDEC_MUHENKAN				0x67        
-#define ASUSDEC_HENKAN				0x64        
+#define ASUSDEC_MUHENKAN				0x67
+#define ASUSDEC_HENKAN				0x64
 #define ASUSDEC_HIRAGANA_KATAKANA	0x13
 #define ASUSDEC_RO					0x51
-/********************************/    
+/********************************/
 /************  UK keys *************/
 #define ASUSDEC_EUROPE_2				0x61
 /********************************/
@@ -192,6 +192,7 @@
 #define ASUSDEC_IOCTL_END	0
 #define ASUSDEC_CPAS_LED_ON	1
 #define ASUSDEC_CPAS_LED_OFF	0
+#define ASUSDEC_TP_TOOGLE	2
 #define ASUSDEC_TP_ON	1
 #define ASUSDEC_TP_OFF	0
 #define ASUSDEC_EC_ON	1
@@ -248,7 +249,7 @@
 struct asusdec_keypad{
 	int value;
 	int input_keycode;
-	int extend;	
+	int extend;
 };
 
 struct asusdec_touchpad_relative{
@@ -303,7 +304,7 @@ struct asusdec_chip {
 	struct asusdec_keypad keypad_data;
 	struct elantech_data *private;
 	struct timer_list asusdec_timer;
-#if TOUCHPAD_MODE	
+#if TOUCHPAD_MODE
 	struct asusdec_touchpad_absolute t_abs;
 #else
 	struct asusdec_touchpad_relative touchpad_data;
@@ -323,7 +324,7 @@ struct asusdec_chip {
 	char dock_pid[32];
 	int polling_rate;
 	int dock_in;	// 0: without dock, 1: with dock
-	int op_mode;	// 0: normal mode, 1: fw update mode	
+	int op_mode;	// 0: normal mode, 1: fw update mode
 	int kbc_value;	// capslock_led 0: led off, 1: led on
 	int dock_det;	// dock-in interrupt count
 	int dock_init;	// 0: dock not init, 1: dock init successfully

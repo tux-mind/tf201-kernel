@@ -6,6 +6,7 @@
 #include <linux/interrupt.h>
 #include <linux/init.h>
 #include <linux/input.h>
+#include <linux/input/mt.h>
 #include <asm/gpio.h>
 #include <linux/workqueue.h>
 #include <linux/cdev.h>
@@ -23,7 +24,7 @@ MODULE_LICENSE("GPL");
 
 static int elan_i2c_asus_cmd(struct i2c_client *client,unsigned char *param, int command)
 {
-  
+
 	u16 asus_ec_cmd;
 	int ret;
 	int retry = ELAN_RETRY_COUNT;
@@ -40,8 +41,8 @@ static int elan_i2c_asus_cmd(struct i2c_client *client,unsigned char *param, int
 		ELAN_ERR("Wirte to device fails status %x\n",ret);
 		return ret;
 	}
-	msleep(CONVERSION_TIME_MS);	
-	
+	msleep(CONVERSION_TIME_MS);
+
 	while(retry-- > 0){
 		ret = i2c_smbus_read_i2c_block_data(client, 0x6A, 8, i2c_data);
 		if (ret < 0) {
@@ -49,139 +50,114 @@ static int elan_i2c_asus_cmd(struct i2c_client *client,unsigned char *param, int
 			return ret;
 		}
 		ASUSDEC_I2C_DATA(i2c_data, index);
-		if ((i2c_data[1] & ASUSDEC_OBF_MASK) && 
-			(i2c_data[1] & ASUSDEC_AUX_MASK)){ 
+		if ((i2c_data[1] & ASUSDEC_OBF_MASK) &&
+			(i2c_data[1] & ASUSDEC_AUX_MASK)){
 			if (i2c_data[2] == PSMOUSE_RET_ACK){
 				break;
 			}
 			else if (i2c_data[2] == PSMOUSE_RET_NAK){
 				goto fail_elan_touchpad_i2c;
 			}
-		}		
+		}
 		msleep(CONVERSION_TIME_MS/5);
 	}
-	
+
 	retry_data_count = (command & 0x0f00) >> 8;
 	for(i=1; i <= retry_data_count; i++){
-		param[i-1] = i2c_data[i+2];	  
+		param[i-1] = i2c_data[i+2];
 	}
-	  
+
 	return 0;
-	
-fail_elan_touchpad_i2c:	
+
+fail_elan_touchpad_i2c:
 	ELAN_ERR("fail to get touchpad response");
 	return -1;
-  
+
 }
 
 /*
  * Interpret complete data packets and report absolute mode input events for
  * hardware version 2. (6 byte packets)
+ * HACKED version: don't write anything in asus structs,
+ * just report position/keys/pressure to kernel.
  */
 void elantech_report_absolute_to_related(struct asusdec_chip *ec_chip, int *Null_data_times)
 {
-	struct elantech_data *etd;
 	struct input_dev *dev;
 	unsigned char *packet;
-	unsigned int fingers;
-	unsigned int width = 0;
-	int left_button, right_button;
-	int x, y;
-	int last_fingers;
-	int i;
+	int fingers,x,y,h_value,width;
 
-	etd = (struct elantech_data *) ec_chip->private;
-	dev = etd->abs_dev;
- 	packet = ec_chip->ec_data;
+	/* fingers => how many fingers are now on the touchpad
+	 * x => current X position
+	 * y => current y position
+	 * h_value => current Z position ( pressure on the touchpad )
+	 * width => width of touched area
+	 */
 
-	// Report multitouch events for fingers.
+	packet = ec_chip->ec_data;
+	dev = ec_chip->private->abs_dev;
 	fingers = (packet[0] & 0xc0) >> 6;
 	x = ((packet[1] & 0x0f) << 8) | packet[2];
-	y = etd->ymax - (((packet[4] & 0x0f) << 8) | packet[5]);
-	//printk("fingers=%d, x=%d, y=%d, packet=%02x,%02x,%02x,%02x,%02x,%02x\n", fingers, x, y, packet[0], packet[1], packet[2], packet[3], packet[4], packet[5]);
-        width = ((packet[0] & 0x30) >> 2) | ((packet[3] & 0x30) >> 4);
+	y = ETP_YMAX_V2 - (((packet[4] & 0x0f) << 8) | packet[5]);
+	width = ((packet[0] & 0x30) >> 2) | ((packet[3] & 0x30) >> 4);
+	h_value = ((packet[4] & 0xf0) >> 4) | (packet[1] & 0xf0);
 
-	last_fingers = etd->fingers;
+	input_report_key(dev, BTN_LEFT, (packet[0] & 0x01));
+	input_report_key(dev, BTN_RIGHT, (packet[0] & 0x02) >> 1);
+	input_report_key(dev, BTN_TOUCH, fingers != 0);
+	input_report_key(dev, BTN_TOOL_FINGER, fingers == 1);
+	input_report_key(dev, BTN_TOOL_DOUBLETAP, fingers == 2);
+	input_report_key(dev, BTN_TOOL_TRIPLETAP, fingers == 3);
+	input_report_key(dev, BTN_TOOL_QUADTAP, fingers == 4);
 
-	switch (fingers) {
-		case 0:
-			// No fingers down.
-			etd->fingers = 0;
-			break;
-
+	switch (fingers)
+	{
 		case 1:
-			// One finger down.
-			etd->fingers = 1;
-			etd->pos[0].x = x;
-			etd->pos[0].y = y;
+			input_mt_slot(dev, 0);
+			input_mt_report_slot_state(dev, MT_TOOL_FINGER, true);
+			input_report_abs(dev, ABS_MT_POSITION_X, x);
+			input_report_abs(dev, ABS_MT_POSITION_Y, y);
+			input_report_abs(dev, ABS_MT_TOUCH_MAJOR, width);
+			input_report_abs(dev, ABS_MT_PRESSURE, h_value);
+			input_mt_slot(dev, 1);
+			input_mt_report_slot_state(dev, MT_TOOL_FINGER, false);
 			break;
 
 		case 2:
-			// Two fingers down.
-			// Wait to get data from both fingers.
-			if (etd->fingers != 2) {
-				etd->fingers = 2;
-				etd->pos[0].x = -1;
-				etd->pos[1].x = -1;
-			}
-			if ((packet[0] & 0x0c) == 0x04) {
-				etd->pos[0].x = x;
-				etd->pos[0].y = y;
-			} else {
-				etd->pos[1].x = x;
-				etd->pos[1].y = y;
-			}
-			if (etd->pos[0].x < 0 || etd->pos[1].x < 0)
-				return;
+			if ((packet[0] & 0x0c) == 0x04) // custom asus stuff i think...
+				input_mt_slot(dev, 0); // this tell us if current data is related to finger 1 or 2
+			else
+				input_mt_slot(dev, 1);
+			input_mt_report_slot_state(dev, MT_TOOL_FINGER, true);
+			input_report_abs(dev, ABS_MT_POSITION_X, x);
+			input_report_abs(dev, ABS_MT_POSITION_Y, y);
+ 			input_report_abs(dev, ABS_MT_TOUCH_MAJOR, width);
+			input_report_abs(dev, ABS_MT_PRESSURE, h_value);
 			break;
-
-		case 3:
-			// Three or more fingers down.
-			// Wait for at least one finger to go up.
-			return;
+		case 0:
+			input_mt_slot(dev, 0);
+			input_mt_report_slot_state(dev, MT_TOOL_FINGER, false);
+			input_mt_slot(dev, 1);
+			input_mt_report_slot_state(dev, MT_TOOL_FINGER, false);
 	}
 
-	// Send finger reports.
-	if (etd->fingers) {
-		for (i = 0; i < etd->fingers; i++) {
-			input_report_abs(dev, ABS_MT_TOUCH_MAJOR, width);
-			input_report_abs(dev, ABS_MT_POSITION_X, etd->pos[i].x);
-			input_report_abs(dev, ABS_MT_POSITION_Y, etd->pos[i].y);
-			input_mt_sync(dev);
-		}
-	} else if (last_fingers) {
-		input_mt_sync(dev);
-	}
-
-	// Send button press / release events.
-	left_button = (packet[0] & 0x01);
-	if (left_button != etd->left_button) {
-		input_report_key(dev, BTN_LEFT, left_button);
-		etd->left_button = left_button;
-	}
-
-	right_button = (packet[0] & 0x02) >> 1;
-	if (right_button != etd->right_button) {
-		input_report_key(dev, BTN_RIGHT, right_button);
-		etd->right_button = right_button;
-	}
-	
+	input_mt_report_pointer_emulation(dev, true);
 	input_sync(dev);
 }
 
 /*
  * Put the touchpad into absolute mode
  */
- 
+
 static int elantech_set_absolute_mode(struct asusdec_chip *ec_chip)
 {
-	
+
 	struct i2c_client *client;
-	unsigned char reg_10 = 0x03;	
-		
+	unsigned char reg_10 = 0x03;
+
 	ELAN_INFO("elantech_set_absolute_mode 2\n");
 	client = ec_chip->client;
-	
+
 	if ((!elan_i2c_asus_cmd(client, NULL, ETP_PS2_CUSTOM_COMMAND)) &&
 	    (!elan_i2c_asus_cmd(client, NULL, ETP_REGISTER_RW)) &&
 	    (!elan_i2c_asus_cmd(client, NULL, ETP_PS2_CUSTOM_COMMAND)) &&
@@ -189,10 +165,10 @@ static int elantech_set_absolute_mode(struct asusdec_chip *ec_chip)
 	    (!elan_i2c_asus_cmd(client, NULL, ETP_PS2_CUSTOM_COMMAND)) &&
 	    (!elan_i2c_asus_cmd(client, NULL, reg_10)) &&
 	    (!elan_i2c_asus_cmd(client, NULL, PSMOUSE_CMD_SETSCALE11))) {
-		
+
 		return 0;
 	}
-	return -1; 
+	return -1;
 }
 
 
@@ -202,46 +178,69 @@ static int elantech_set_absolute_mode(struct asusdec_chip *ec_chip)
 static int elantech_set_input_rel_params(struct asusdec_chip *ec_chip)
 {
 	struct elantech_data *etd = ec_chip->private;
+	struct input_dev *dev;
 	unsigned char param[3];
 	int ret;
 
-        if ((!elan_i2c_asus_cmd(ec_chip->client, NULL, ETP_PS2_CUSTOM_COMMAND)) &&
-            (!elan_i2c_asus_cmd(ec_chip->client, NULL, 0x0001)) &&
-            (!elan_i2c_asus_cmd(ec_chip->client, param, PSMOUSE_CMD_GETINFO))){
-                etd->fw_version = (param[0] << 16) | (param[1] << 8) | param[2];
-        }
-        else
-                goto init_fail;
+	if ((!elan_i2c_asus_cmd(ec_chip->client, NULL, ETP_PS2_CUSTOM_COMMAND)) &&
+			(!elan_i2c_asus_cmd(ec_chip->client, NULL, 0x0001)) &&
+			(!elan_i2c_asus_cmd(ec_chip->client, param, PSMOUSE_CMD_GETINFO))){
+				etd->fw_version = (param[0] << 16) | (param[1] << 8) | param[2];
+	}
+	else
+		goto init_fail;
 
 	if ((!elan_i2c_asus_cmd(ec_chip->client, NULL, ETP_PS2_CUSTOM_COMMAND)) &&
 	    (!elan_i2c_asus_cmd(ec_chip->client, NULL, 0x0000)) &&
 	    (!elan_i2c_asus_cmd(ec_chip->client, param, PSMOUSE_CMD_GETINFO))){
-		
+
 		if(etd->abs_dev){
 			return 0;
 		}
-		
+
 		etd->xmax = (0x0F & param[0]) << 8 | param[1];
-		etd->ymax = (0xF0 & param[0]) << 4 | param[2];		
-		
-		etd->abs_dev = input_allocate_device();
+		etd->ymax = (0xF0 & param[0]) << 4 | param[2];
+
+		dev = etd->abs_dev = input_allocate_device();
 		ELAN_INFO("1 elantech_touchscreen=%p\n",etd->abs_dev);
 		if (etd->abs_dev != NULL){
 			ELAN_INFO("2 elantech_touchscreen=%p\n",etd->abs_dev);
 			etd->abs_dev->name = "elantech_touchscreen";
-			etd->abs_dev->evbit[0] = BIT_MASK(EV_KEY) | BIT_MASK(EV_SYN);
-			etd->abs_dev->keybit[BIT_WORD(BTN_MOUSE)] = BIT_MASK(BTN_LEFT) | BIT_MASK(BTN_RIGHT);
-		
-			set_bit(EV_KEY, etd->abs_dev->evbit);
-			set_bit(EV_ABS, etd->abs_dev->evbit);
+			dev->phys = ec_chip->client->adapter->name;
+			dev->id.bustype = BUS_I2C;
 
-			input_set_abs_params(etd->abs_dev, ABS_MT_POSITION_X, 0, etd->xmax, 0, 0);
-			input_set_abs_params(etd->abs_dev, ABS_MT_POSITION_Y, 0, etd->ymax, 0, 0);
-			input_set_abs_params(etd->abs_dev, ABS_MT_TOUCH_MAJOR, 0, ETP_WMAX_V2, 0, 0);
+			__set_bit(EV_KEY, dev->evbit);
+			__set_bit(EV_ABS, dev->evbit);
+			__clear_bit(EV_REL, dev->evbit);
+
+			__set_bit(BTN_LEFT, dev->keybit);
+			__set_bit(BTN_RIGHT, dev->keybit);
+
+			__set_bit(BTN_TOUCH, dev->keybit);
+			__set_bit(BTN_TOOL_FINGER, dev->keybit);
+			__set_bit(BTN_TOOL_DOUBLETAP, dev->keybit);
+			__set_bit(BTN_TOOL_TRIPLETAP, dev->keybit);
+			__set_bit(BTN_TOOL_QUADTAP, dev->keybit);
+
+			__set_bit(INPUT_PROP_SEMI_MT, dev->propbit);
+
+			/* Touch area X Y Value */
+			input_set_abs_params(dev, ABS_X, ETP_XMIN_V2, ETP_XMAX_V2, 0, 0);
+			input_set_abs_params(dev, ABS_Y, ETP_YMIN_V2, ETP_YMAX_V2, 0, 0);
+			/* Finger Pressure value */
+			input_set_abs_params(dev, ABS_MT_PRESSURE, ETP_PMIN_V2, ETP_PMAX_V2, 0, 0);
+
+			/* Palme Value */
+			input_set_abs_params(dev, ABS_MT_TOUCH_MAJOR, ETP_WMIN_V2, ETP_WMAX_V2, 0, 0);
+
+			/* Fingers X Y values */
+			input_mt_init_slots(dev, 2);
+			input_set_abs_params(dev, ABS_MT_POSITION_X, ETP_XMIN_V2, ETP_XMAX_V2, 0, 0);
+			input_set_abs_params(dev, ABS_MT_POSITION_Y, ETP_YMIN_V2, ETP_YMAX_V2, 0, 0);
 
 			ret=input_register_device(etd->abs_dev);
 			if (ret) {
-			      ELAN_ERR("Unable to register %s input device\n", etd->abs_dev->name);		  
+			      ELAN_ERR("Unable to register %s input device\n", etd->abs_dev->name);
 			}
 		}
 		return 0;
@@ -249,7 +248,7 @@ static int elantech_set_input_rel_params(struct asusdec_chip *ec_chip)
 
  init_fail:
 	return -1;
-  
+
 }
 
 
@@ -263,7 +262,7 @@ int elantech_detect(struct asusdec_chip *ec_chip)
 	ELAN_INFO("2.6.2X-Elan-touchpad-2010-11-27\n");
 
 	client = ec_chip->client;
-	
+
 	if (elan_i2c_asus_cmd(client,  NULL, PSMOUSE_CMD_DISABLE) ||
 	    elan_i2c_asus_cmd(client,  NULL, PSMOUSE_CMD_SETSCALE11) ||
 	    elan_i2c_asus_cmd(client,  NULL, PSMOUSE_CMD_SETSCALE11) ||
@@ -282,7 +281,7 @@ int elantech_detect(struct asusdec_chip *ec_chip)
 			param[0], param[1],param[2]);
 		return -1;
 	}
-	
+
 	return 0;
 }
 
@@ -290,9 +289,9 @@ int elantech_detect(struct asusdec_chip *ec_chip)
  * Initialize the touchpad and create sysfs entries
  */
 int elantech_init(struct asusdec_chip *ec_chip)
-{  
+{
 	ELAN_INFO("Elan et1059 elantech_init\n");
-	
+
 	if (elantech_set_absolute_mode(ec_chip)){
 		ELAN_ERR("failed to put touchpad into absolute mode.\n");
 		return -1;
