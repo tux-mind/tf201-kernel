@@ -370,7 +370,9 @@ if ($hz eq '--can') {
 	}
 
 	@val = @{$canned_values{$hz}};
-	if (!defined(@val)) {
+	# Perl v5.22.1 error: Can't use 'defined(@array)' (Maybe you should just omit the defined()?)
+	#if (!defined(@val)) {
+	if (!@val) {
 		@val = compute_values($hz);
 	}
 	output($hz, @val);

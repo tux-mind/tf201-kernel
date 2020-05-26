@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Inspired from https://wiki.gentoo.org/wiki/Embedded_Handbook/General/Cross-compiling_the_kernel
+
+exec make ARCH="arm" CROSS_COMPILE="arm-linux-gnueabihf-" INSTALL_MOD_PATH="${SYSROOT}" "$@"
+
